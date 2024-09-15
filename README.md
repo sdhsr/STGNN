@@ -74,7 +74,7 @@ $ python3 USTGCN.py --cuda --dataset PeMSD7 --pred_len 3 --save_model
 Please download the trained USTGCN models from [Google drive]() and place it in `saved_model/PeMSD7` folder
 
 ```
-$ python3 USTGCN.py --cuda --dataset PeMSD7  --pred_len 3 --trained_model
+$ python3 USTGCN2.py --cuda --dataset PeMSD7  --pred_len 3 --trained_model
 ```
 
 **Run Trained Model:**
@@ -82,7 +82,7 @@ $ python3 USTGCN.py --cuda --dataset PeMSD7  --pred_len 3 --trained_model
 Please download the trained SSTGNN models from [Google drive]() and place them in `PeMSD7` folder
 
 ```
-$ python3 USTGCN.py --cuda --dataset PeMSD7 --pred_len 3 --trained_model
+$ python3 USTGCN2.py --cuda --dataset PeMSD7 --pred_len 3 --trained_model
 ```
 !-->
  
@@ -100,4 +100,8 @@ If you find our paper or repo useful then please cite our paper:
   organization={IEEE}
 }
 ```
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=amitroy7781/ustgcn&type=Date)](https://star-history.com/#amitroy7781/ustgcn&Date)
 
