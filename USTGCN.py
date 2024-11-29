@@ -67,42 +67,43 @@ class DataCenter(object):
                     timestamp_data.append(info)
 
         timestamp_data = np.asarray(timestamp_data)
-        timestamp_data = timestamp_data.transpose()
-        tot_node = timestamp_data.shape[0]
-        tot_ts = timestamp_data.shape[1]
+        timestamp_data = timestamp_data.transpose()  #转置
+        tot_node = timestamp_data.shape[0]        #228
+        tot_ts = timestamp_data.shape[1]         #12672
 
         st_day -= 1
-        timestamp = 24 * hr_sample
+        timestamp = 24 * hr_sample           #一天288个时间戳
 
         ts_data = []
         label_data = []
 
-        for idx in range(st_day, en_day + 1 - day, 1):
+        for idx in range(st_day, en_day + 1 - day, 1):   #天数
 
-            st_point = idx * timestamp
-            en_point = (idx + 1) * timestamp
+            st_point = idx * timestamp      #0
+            en_point = (idx + 1) * timestamp         #288
 
             last_hour = False
-            for st in range(st_point, en_point):
+            for st in range(st_point, en_point):  #每天时间戳数
                 a_data = []
 
                 if st + 12 + ((day - 1) * timestamp) + pred_len == tot_ts:
                     break
 
+                                   #一小时12个时间戳
                 for it in range(st, st + 12):
-                    his = timestamp_data[:, (it + pred_len): it + pred_len + ((day - 1) * timestamp):timestamp]
-                    cur = timestamp_data[:, it + (day - 1) * timestamp].reshape(tot_node, 1)
-                    a = np.concatenate((his, cur), axis=1).reshape(1, tot_node, day)
+                    his = timestamp_data[:, (it + pred_len): it + pred_len + ((day - 1) * timestamp):timestamp] #228行7列
+                    cur = timestamp_data[:, it + (day - 1) * timestamp].reshape(tot_node, 1)  #228行1列
+                    a = np.concatenate((his, cur), axis=1).reshape(1, tot_node, day)     #228行，8列
                     a_data.append(a)
 
-                a_data = np.concatenate(a_data, axis=0)
+                a_data = np.concatenate(a_data, axis=0)   #12个：228行8列的二维数组
 
                 pred_data = []
                 for pred in range(pred_len):
                     gt = timestamp_data[:, st + 12 + ((day - 1) * timestamp) + pred].reshape(tot_node, 1)
                     pred_data.append(gt)
 
-                pred_data = np.concatenate(pred_data, axis=1)
+                pred_data = np.concatenate(pred_data, axis=1) #288行3列
 
                 ts_data.append(a_data)
                 label_data.append(pred_data)
@@ -202,9 +203,10 @@ class Regression(nn.Module):
             if len(param.size()) == 2:
                 nn.init.xavier_uniform_(param)
 
+               #embds(288*96)
     def forward(self, embds):
         logists = self.layer(embds)
-        return logists
+        return logists   #返回288*3
 
 
 """# Data Loader"""
@@ -221,10 +223,10 @@ class DataLoader:
 
         if ds == "PeMSD7":
             train_st = 1
-            train_en = 9
+            train_en = 22
 
-            test_st = 10
-            test_en = 18
+            test_st = 23
+            test_en = 44
 
         elif ds == "PeMSD8":
             train_st = 1
@@ -252,7 +254,7 @@ class DataLoader:
     def load_data(self):
         print("Loading Data...")
         train_data, train_label = self.dataCenter.load_data(self.ds, self.train_st, self.train_en, self.hr_sample,
-                                                            self.day, self.pred_len)
+                                                            self.day, self.pred_len)       #train_data(576,12,228,8) label(576,288,3)
         test_data, test_label = self.dataCenter.load_data(self.ds, self.test_st, self.test_en, self.hr_sample, self.day,
                                                           self.pred_len)
         adj = self.dataCenter.load_adj(self.ds)
@@ -343,16 +345,19 @@ class TrafficModel:
 
             print("Epoch: ", epoch, " running...")
 
-            tot_timestamp = len(self.train_data)
+            tot_timestamp = len(self.train_data)   #576
+
             if self.t_debug:
                 tot_timestamp = 60
             idx = np.random.permutation(tot_timestamp)
+
 
             for data_timestamp in idx:
 
                 tr_data = self.train_data[data_timestamp]
                 tr_label = self.train_label[data_timestamp]
 
+                ####-----todo----
                 timeStampModel, regression, train_loss = apply_model(self.all_nodes, timeStampModel,
                                                                      regression, self.node_bsz, tr_data,
                                                                      tr_label, train_loss, lr)
@@ -395,9 +400,6 @@ class TrafficModel:
                     break
 
             test_loss /= len(idx)
-
-            print(len(idx))
-            sys.exit()
 
             print("Average Test Loss: ", test_loss)
 
@@ -476,21 +478,21 @@ class SPTempGNN(nn.Module):
         super(SPTempGNN, self).__init__()
 
         self.tot_nodes = tot_nodes
-        self.sp_temp = torch.mm(D_temporal, torch.mm(A_temporal, D_temporal))
+        self.sp_temp = torch.mm(D_temporal, torch.mm(A_temporal, D_temporal)) #矩阵相乘 NT*NT
 
-        self.his_temporal_weight = nn.Parameter(torch.FloatTensor(num_timestamps, out_size))
+        self.his_temporal_weight = nn.Parameter(torch.FloatTensor(num_timestamps, out_size)) #12*8
 
         self.his_final_weight = nn.Parameter(torch.FloatTensor(2 * (out_size), out_size))
 
     def forward(self, his_raw_features):
         his_self = his_raw_features
         his_temporal = self.his_temporal_weight.repeat(self.tot_nodes, 1) * his_raw_features
-        his_temporal = torch.mm(self.sp_temp, his_temporal)
+        his_temporal = torch.mm(self.sp_temp, his_temporal)          #得出X(lST)
 
         his_combined = torch.cat([his_self, his_temporal], dim=1)
         his_raw_features = F.relu(his_combined.mm(self.his_final_weight))
 
-        return his_raw_features
+        return his_raw_features     #返回NT*d
 
 
 """# Combined GraphSAGE
@@ -507,13 +509,20 @@ class CombinedGNN(nn.Module):
         self.num_timestamps = num_timestamps
         self.out_size = out_size
         self.tot_nodes = adj_lists.shape[0]
-        self.adj_lists = adj_lists
+        self.adj_lists = adj_lists        #邻接矩阵
         self.GNN_layers = GNN_layers
 
         self.day = day
 
+        print("input_size:", input_size)
+        print("out_size:", out_size)
+        print("num_timestamps:", num_timestamps)
+
+
+
         self.his_weight = nn.Parameter(torch.FloatTensor(out_size, self.num_timestamps * out_size))
         self.cur_weight = nn.Parameter(torch.FloatTensor(1, self.num_timestamps * 1))
+
 
         A = self.adj_lists
         dim = self.num_timestamps * self.tot_nodes
@@ -522,6 +531,7 @@ class CombinedGNN(nn.Module):
         D_temporal = torch.zeros(dim, dim)
         identity = torch.eye(self.tot_nodes)
 
+               #构建时空矩阵
         for i in range(0, self.num_timestamps):
             for j in range(0, i + 1):
 
@@ -537,6 +547,7 @@ class CombinedGNN(nn.Module):
 
         row_sum = torch.sum(A_temporal, 0)
 
+                   #
         for i in range(dim):
             D_temporal[i, i] = 1 / max(torch.sqrt(row_sum[i]), 1)
 
@@ -558,7 +569,7 @@ class CombinedGNN(nn.Module):
     def forward(self, his_raw_features, isTrain):
 
         dim = self.num_timestamps * self.tot_nodes
-        his_raw_features = his_raw_features[:, :, :self.day].view(dim, self.day)
+        his_raw_features = his_raw_features[:, :, :self.day].view(dim, self.day)   #最终：NT*d
 
         for i in range(self.GNN_layers):
             sp_temp = getattr(self, 'sp_temp_layer' + str(i))
@@ -571,10 +582,10 @@ class CombinedGNN(nn.Module):
             en = (timestamp + 1) * self.tot_nodes
             his_list.append(his_raw_features[st:en, :])
 
-        his_final_embds = torch.cat(his_list, dim=1)
+        his_final_embds = torch.cat(his_list, dim=1)    #228*96
 
         final_embds = his_final_embds
-        final_embds = F.relu(self.final_weight.mm(final_embds.t()).t())
+        final_embds = F.relu(self.final_weight.mm(final_embds.t()).t())  #X(self+1)
 
         return final_embds
 
@@ -603,6 +614,7 @@ def apply_model(train_nodes, CombinedGNN, regression,
     # window slide
     raw_features = train_data
     labels = train_label
+                     #最多512个节点为一批次
     for index in range(node_batches):
         nodes_batch = train_nodes[index * node_batch_sz:(index + 1) * node_batch_sz]
         nodes_batch = nodes_batch.view(nodes_batch.shape[0], 1)
@@ -612,7 +624,7 @@ def apply_model(train_nodes, CombinedGNN, regression,
 
         logists = regression(embs_batch)
 
-        loss_sup = torch.nn.MSELoss()(logists, labels_batch)
+        loss_sup = torch.nn.MSELoss()(logists, labels_batch)    #计算均方误差
 
         loss_sup /= len(nodes_batch)
         loss += loss_sup
@@ -658,7 +670,7 @@ print('Traffic Forecasting GNN with Historical and Current Model')
 # set user given seed to every random generator
 random.seed(args.seed)
 np.random.seed(args.seed)
-torch.manual_seed(args.seed)
+torch.manual_seed(args.seed)      #42
 torch.cuda.manual_seed_all(args.seed)
 
 PATH = os.getcwd() + "/"
@@ -666,15 +678,16 @@ config_file = PATH + "experiments.conf"
 
 config = pyhocon.ConfigFactory.parse_file(config_file)
 ds = args.dataset
-pred_len = args.pred_len
+pred_len = args.pred_len  #3
 data_loader = DataLoader(config, ds, pred_len)
 train_data, train_label, test_data, test_label, adj = data_loader.load_data()
 
-num_timestamps = args.num_timestamps
-GNN_layers = args.GNN_layers
-input_size = args.input_size
-out_size = args.input_size
-epochs = args.epochs
+
+num_timestamps = args.num_timestamps   #12
+GNN_layers = args.GNN_layers          #3
+input_size = args.input_size          #8
+out_size = args.input_size         #8
+epochs = args.epochs        #500
 
 save_flag = args.save_model
 t_debug = False
