@@ -183,7 +183,6 @@ def mean_absolute_percentage_error(y_true, y_pred):
 
 """# Downstream Task"""
 
-
 class Regression(nn.Module):
 
     def __init__(self, emb_size, out_size):
@@ -588,7 +587,6 @@ class CombinedGNN(nn.Module):
 
 
 """# Applying Model"""
-
 
 def apply_model(train_nodes, CombinedGNN, regression,
                 node_batch_sz, device, train_data, train_label, avg_loss, lr):
