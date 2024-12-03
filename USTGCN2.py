@@ -29,128 +29,123 @@ from datetime import datetime
 
 """# Data Center"""
 
+
 class DataCenter(object):
 
     def __init__(self, config):
         super(DataCenter, self).__init__()
         self.config = config
 
-    def getPositionEmbedding(self,pos):
-      input = np.arange(0,pos+1,1)
-      a = input * 360
-      day = a / 288
-      week = a / 2016
-      month = a / 8640
-      day = np.deg2rad(day)
-      week = np.deg2rad(week)
-      day = np.sin(day)
-      week = np.sin(week)
-      combined = day+week
+    def getPositionEmbedding(self, pos):
+        input = np.arange(0, pos + 1, 1)
+        a = input * 360
+        day = a / 288
+        week = a / 2016
+        month = a / 8640
+        day = np.deg2rad(day)
+        week = np.deg2rad(week)
+        day = np.sin(day)
+        week = np.sin(week)
+        combined = day + week
+        return combined
 
-      return combined
+    def load_data(self, ds, st_day, en_day, hr_sample, day, pred_len):
 
+        content_file = self.config['file_path.' + ds + '_content']
 
+        if ds == "PeMSD8" or ds == "PeMSD4":
+            timestamp_data = np.load(content_file)
+            timestamp_data = timestamp_data[:, :, 2]
+        else:
+            timestamp_data = []
 
-    def load_data(self,ds,st_day,en_day,hr_sample,day,pred_len):
+            with open(content_file) as fp:
+                for i, line in enumerate(fp):
+                    info = line.strip().split(",")
+                    info = [float(x) for x in info]
 
-      content_file = self.config['file_path.' + ds + '_content']
+                    timestamp_data.append(info)
 
-      if ds=="PeMSD8" or ds == "PeMSD4":
-        timestamp_data = np.load(content_file)
-        timestamp_data = timestamp_data[:,:,2]
-      else:
-        timestamp_data = []
+        timestamp_data = np.asarray(timestamp_data)
+        timestamp_data = timestamp_data.transpose()
+        tot_node = timestamp_data.shape[0]
+        tot_ts = timestamp_data.shape[1]
 
-        with open(content_file) as fp:
-          for i, line in enumerate(fp):
-            info = line.strip().split(",")
-            info = [float(x) for x in info]
+        st_day -= 1
+        timestamp = 24 * hr_sample
 
-            timestamp_data.append(info)
+        ts_data = []
+        label_data = []
 
-      timestamp_data = np.asarray(timestamp_data)
-      timestamp_data = timestamp_data.transpose()
-      tot_node = timestamp_data.shape[0]
-      tot_ts = timestamp_data.shape[1]
+        for idx in range(st_day, en_day + 1 - day, 1):
 
-      st_day -= 1
-      timestamp = 24 * hr_sample
+            st_point = idx * timestamp
+            en_point = (idx + 1) * timestamp
 
-      ts_data = []
-      label_data = []
+            last_hour = False
+            for st in range(st_point, en_point):
+                a_data = []
 
-      for idx in range(st_day,en_day+1-day,1):
+                if st + 12 + ((day - 1) * timestamp) + pred_len == tot_ts:
+                    break
 
-        st_point = idx*timestamp
-        en_point = (idx+1)*timestamp
+                for it in range(st, st + 12):
+                    his = timestamp_data[:, (it + pred_len): it + pred_len + ((day - 1) * timestamp):timestamp]
+                    cur = timestamp_data[:, it + (day - 1) * timestamp].reshape(tot_node, 1)
+                    a = np.concatenate((his, cur), axis=1).reshape(1, tot_node, day)
+                    a_data.append(a)
 
+                a_data = np.concatenate(a_data, axis=0)
 
-        last_hour = False
-        for st in range(st_point, en_point):
-          a_data = []
+                pred_data = []
+                for pred in range(pred_len):
+                    gt = timestamp_data[:, st + 12 + ((day - 1) * timestamp) + pred].reshape(tot_node, 1)
+                    pred_data.append(gt)
 
-          if st + 12 + ((day-1)*timestamp) + pred_len == tot_ts:
-            break
+                pred_data = np.concatenate(pred_data, axis=1)
 
-          for it in range(st,st+12):
-            his = timestamp_data[:,(it+pred_len): it+pred_len+((day-1)*timestamp) :timestamp]
-            cur = timestamp_data[:,it + (day-1)*timestamp].reshape(tot_node,1)
-            a = np.concatenate((his,cur),axis=1).reshape(1,tot_node,day)
-            a_data.append(a)
+                ts_data.append(a_data)
+                label_data.append(pred_data)
 
-          a_data = np.concatenate(a_data,axis=0)
+        return ts_data, label_data
 
-          pred_data = []
-          for pred in range(pred_len):
-            gt = timestamp_data[:,st + 12 + ((day-1)*timestamp) + pred].reshape(tot_node,1)
-            pred_data.append(gt)
+    def load_adj(self, ds):
+        W = self.load_PeMSD(self.config['file_path.' + ds + '_cites'])
+        adj_lists = defaultdict(set)
+        for row in range(len(W)):
+            adj_lists[row] = set()
+            for col in range(len(W)):
+                if float(W[row][col]) > 0:
+                    adj_lists[row].add(col)
+                    adj_lists[col].add(row)
 
-          pred_data = np.concatenate(pred_data,axis =1)
+        adj = torch.zeros((len(adj_lists), len(adj_lists)))
+        for u in adj_lists:
+            for v in adj_lists[u]:
+                adj[u][v] = 1
+                adj[v][u] = 1
+        return adj
 
-          ts_data.append(a_data)
-          label_data.append(pred_data)
+    def load_PeMSD(self, file_path, sigma2=0.1, epsilon=0.5, scaling=True):
 
+        try:
+            W = pd.read_csv(file_path, header=None).values
+        except FileNotFoundError:
+            print('ERROR: No File Found.')
 
-      return ts_data,label_data
+        n = W.shape[0]
+        W = W / 10000.
+        W2, W_mask = W * W, np.ones([n, n]) - np.identity(n)
 
-    def load_adj(self,ds):
-      W = self.load_PeMSD(self.config['file_path.'+ ds +'_cites'])
-      adj_lists = defaultdict(set)
-      for row in range(len(W)):
-        adj_lists[row] = set()
-        for col in range(len(W)):
-          if float(W[row][col]) >0 :
-            adj_lists[row].add(col)
-            adj_lists[col].add(row)
+        return np.exp(-W2 / sigma2) * (np.exp(-W2 / sigma2) >= epsilon) * W_mask
 
-      adj = torch.zeros((len(adj_lists),len(adj_lists)))
-      for u in adj_lists:
-        for v in adj_lists[u]:
-            adj[u][v] = 1
-            adj[v][u] = 1
-      return adj
-
-
-    def load_PeMSD(self,file_path, sigma2=0.1, epsilon=0.5, scaling=True):
-
-      try:
-          W = pd.read_csv(file_path, header=None).values
-      except FileNotFoundError:
-          print('ERROR: No File Found.')
-
-      n = W.shape[0]
-      W = W / 10000.
-      W2, W_mask = W * W, np.ones([n, n]) - np.identity(n)
-
-      return np.exp(-W2 / sigma2) * (np.exp(-W2 / sigma2) >= epsilon) * W_mask
 
 """# Utility Functions
 
 """
 
-def evaluate(test_nodes,raw_features,labels, USTGCN, regression, device,test_loss):
 
-
+def evaluate(test_nodes, raw_features, labels, USTGCN, regression, device, test_loss):
     models = [USTGCN, regression]
 
     params = []
@@ -160,9 +155,8 @@ def evaluate(test_nodes,raw_features,labels, USTGCN, regression, device,test_los
                 param.requires_grad = False
                 params.append(param)
 
-
     val_nodes = test_nodes
-    embs = USTGCN(raw_features,False)
+    embs = USTGCN(raw_features, False)
     predicts = regression(embs)
     loss_sup = torch.nn.MSELoss()(predicts, labels)
     loss_sup /= len(val_nodes)
@@ -171,22 +165,24 @@ def evaluate(test_nodes,raw_features,labels, USTGCN, regression, device,test_los
     for param in params:
         param.requires_grad = True
 
-    return predicts,test_loss
+    return predicts, test_loss
 
-def RMSELoss(yhat,y):
+
+def RMSELoss(yhat, y):
     yhat = torch.FloatTensor(yhat)
     y = torch.FloatTensor(y)
-    return torch.sqrt(torch.mean((yhat-y)**2)).item()
+    return torch.sqrt(torch.mean((yhat - y) ** 2)).item()
 
 
 def mean_absolute_percentage_error(y_true, y_pred):
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
 
-  y_true = np.asarray(y_true)
-  y_pred = np.asarray(y_pred)
+    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
-  return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
 """# Downstream Task"""
+
 
 class Regression(nn.Module):
 
@@ -194,11 +190,10 @@ class Regression(nn.Module):
         super(Regression, self).__init__()
 
         self.layer = nn.Sequential(nn.Linear(emb_size, emb_size),
-                                nn.ReLU(),
-                                nn.Linear(emb_size, out_size),
-                                nn.ReLU()
-                                )
-
+                                   nn.ReLU(),
+                                   nn.Linear(emb_size, out_size),
+                                   nn.ReLU()
+                                   )
 
         self.init_params()
 
@@ -211,334 +206,308 @@ class Regression(nn.Module):
         logists = self.layer(embds)
         return logists
 
+
 """# Data Loader"""
+
 
 class DataLoader:
 
-  def __init__(self, config,ds,pred_len):
+    def __init__(self, config, ds, pred_len):
 
-    super(DataLoader, self).__init__()
+        super(DataLoader, self).__init__()
 
-    self.ds = ds
-    self.dataCenter = DataCenter(config)
+        self.ds = ds
+        self.dataCenter = DataCenter(config)
 
-    if ds == "PeMSD7":
-      train_st = 1
-      train_en = 22
+        if ds == "PeMSD7":
+            train_st = 1
+            train_en = 8
 
-      test_st = 23
-      test_en = 43
+            test_st = 9
+            test_en = 16
 
-    elif ds == "PeMSD8":
-      train_st = 1
-      train_en = 50
+        elif ds == "PeMSD8":
+            train_st = 1
+            train_en = 50
 
-      test_st = 51
-      test_en = 62
+            test_st = 51
+            test_en = 62
 
-    elif ds == "PeMSD4" :
-      train_st = 1
-      train_en = 47
+        elif ds == "PeMSD4":
+            train_st = 1
+            train_en = 47
 
-      test_st = 48
-      test_en = 58
+            test_st = 48
+            test_en = 58
 
-    self.train_st = train_st
-    self.train_en = train_en
-    self.test_st = test_st
-    self.test_en = test_en
+        self.train_st = train_st
+        self.train_en = train_en
+        self.test_st = test_st
+        self.test_en = test_en
 
-    self.hr_sample = 12
-    self.day = 8
-    self.pred_len = pred_len
+        self.hr_sample = 12
+        self.day = 8
+        self.pred_len = pred_len
 
-  def load_data(self):
-    print("Loading Data...")
-    train_data,train_label = self.dataCenter.load_data(self.ds,self.train_st,self.train_en,self.hr_sample,self.day,self.pred_len)
-    test_data,test_label = self.dataCenter.load_data(self.ds,self.test_st,self.test_en,self.hr_sample,self.day,self.pred_len)
-    adj = self.dataCenter.load_adj(self.ds)
-    print("Data Loaded")
-    print("Dataset: ", self.ds)
-    print("Total Nodes: ",adj.shape[0])
-    print("Train timestamps: ",len(train_data))
-    print("Test timestamps: ",len(test_data))
-    print("Predicting After: ",self.pred_len*5,"minutes")
+    def load_data(self):
+        print("Loading Data...")
+        train_data, train_label = self.dataCenter.load_data(self.ds, self.train_st, self.train_en, self.hr_sample,
+                                                            self.day, self.pred_len)
+        test_data, test_label = self.dataCenter.load_data(self.ds, self.test_st, self.test_en, self.hr_sample, self.day,
+                                                          self.pred_len)
+        adj = self.dataCenter.load_adj(self.ds)
+        print("Data Loaded")
+        print("Dataset: ", self.ds)
+        print("Total Nodes: ", adj.shape[0])
+        print("Train timestamps: ", len(train_data))
+        print("Test timestamps: ", len(test_data))
+        print("Predicting After: ", self.pred_len * 5, "minutes")
 
-    return train_data,train_label,test_data,test_label,adj
+        return train_data, train_label, test_data, test_label, adj
+
 
 """# Traffic Model"""
 
+
 class TrafficModel:
 
-    def __init__(self, train_data,train_label,test_data,test_label,adj,
-                 config, ds, input_size, out_size,GNN_layers,
-                epochs, device,num_timestamps, pred_len,save_flag,PATH,t_debug,b_debug):
+    def __init__(self, train_data, train_label, test_data, test_label, adj,
+                 config, ds, input_size, out_size, GNN_layers,
+                 epochs, device, num_timestamps, pred_len, save_flag, PATH, t_debug, b_debug):
 
-      super(TrafficModel, self).__init__()
+        super(TrafficModel, self).__init__()
+
+        self.train_data, self.train_label, self.test_data, self.test_label, self.adj = train_data, train_label, test_data, test_label, adj
+        self.all_nodes = [i for i in range(self.adj.shape[0])]
+
+        self.ds = ds
+        self.input_size = input_size
+        self.out_size = out_size
+        self.GNN_layers = GNN_layers
+        self.day = input_size
+        self.device = device
+        self.epochs = epochs
+        self.regression = Regression(input_size * num_timestamps, pred_len)
+        self.num_timestamps = num_timestamps
+        self.pred_len = pred_len
+
+        self.node_bsz = 512
+        self.PATH = PATH
+        self.save_flag = save_flag
+
+        # self.train_data = torch.FloatTensor(self.train_data).to(device)
+        # self.test_data = torch.FloatTensor(self.test_data).to(device)
+        # self.train_label = torch.FloatTensor(self.train_label).to(device)
+        # self.test_label = torch.FloatTensor(self.test_label).to(device)
+        # self.all_nodes = torch.LongTensor(self.all_nodes).to(device)
+        # self.adj = torch.FloatTensor(self.adj).to(device)
+
+        # 首先，将列表转换为单一的 numpy.ndarray
+        combined_array = np.array(self.train_data)
+        combined_array = combined_array.astype(np.float32)
+        self.train_data = torch.FloatTensor(combined_array)
 
 
-      self.train_data,self.train_label,self.test_data,self.test_label,self.adj = train_data,train_label,test_data,test_label,adj
-      self.all_nodes = [i for i in range(self.adj.shape[0])]
+        self.test_data = np.array(self.test_data)
+        self.test_data = torch.FloatTensor(self.test_data)
 
-      self.ds = ds
-      self.input_size = input_size
-      self.out_size = out_size
-      self.GNN_layers = GNN_layers
-      self.day = input_size
-      self.device = device
-      self.epochs = epochs
-      self.regression = Regression(input_size * num_timestamps, pred_len)
-      self.num_timestamps = num_timestamps
-      self.pred_len = pred_len
+        # 使用 np.array() 合并为单个 NumPy 数组
+        self.train_label = np.array(self.train_label)  # 合并为单一的 numpy.ndarray
+        self.test_label = np.array(self.test_label)
+        self.all_nodes = np.array(self.all_nodes, dtype=np.int64)  # 确保类型是整型以匹配 torch.LongTensor
+        self.adj = np.array(self.adj)
 
-      self.node_bsz = 512
-      self.PATH = PATH
-      self.save_flag = save_flag
-
-      # self.train_data = torch.FloatTensor(self.train_data).to(device)
-      # 首先，将列表转换为单一的 numpy.ndarray
-      combined_array = np.array(self.train_data)
-      combined_array = combined_array.astype(np.float32)
-      self.train_data = torch.FloatTensor(combined_array)
-
-
-#      self.test_data = torch.FloatTensor(self.test_data).to(device)
-      self.test_data = np.array(self.test_data)
-      self.test_data = torch.FloatTensor(self.test_data)
-
-      # self.train_label = torch.FloatTensor(self.train_label).to(device)
-      # self.test_label = torch.FloatTensor(self.test_label).to(device)
-      # self.all_nodes = torch.LongTensor(self.all_nodes).to(device)
-      # self.adj = torch.FloatTensor(self.adj).to(device)
-
-      # 使用 np.array() 合并为单个 NumPy 数组
-      self.train_label = np.array(self.train_label)  # 合并为单一的 numpy.ndarray
-      self.test_label = np.array(self.test_label)
-      self.all_nodes = np.array(self.all_nodes, dtype=np.int64)  # 确保类型是整型以匹配 torch.LongTensor
-      self.adj = np.array(self.adj)
-
-      # 然后再转换为 PyTorch 张量
-      self.train_label = torch.FloatTensor(self.train_label)
-      self.test_label = torch.FloatTensor(self.test_label)
-      self.all_nodes = torch.LongTensor(self.all_nodes)
-      self.adj = torch.FloatTensor(self.adj)
-
+        # 然后再转换为 PyTorch 张量
+        self.train_label = torch.FloatTensor(self.train_label)
+        self.test_label = torch.FloatTensor(self.test_label)
+        self.all_nodes = torch.LongTensor(self.all_nodes)
+        self.adj = torch.FloatTensor(self.adj)
 
 
 
 
-      self.t_debug = t_debug
-      self.b_debug = b_debug
-
+        self.t_debug = t_debug
+        self.b_debug = b_debug
 
     def run_model(self):
 
-      timeStampModel = CombinedGNN(self.input_size,self.out_size,self.adj,
-      self.device,1,self.GNN_layers,self.num_timestamps,self.day)
-      timeStampModel.to(self.device)
+        timeStampModel = CombinedGNN(self.input_size, self.out_size, self.adj,
+                                     self.device, 1, self.GNN_layers, self.num_timestamps, self.day)
+        timeStampModel.to(self.device)
 
-      regression = self.regression
-      regression.to(self.device)
+        regression = self.regression
+        regression.to(self.device)
 
-      min_RMSE = float("Inf")
-      min_MAE = float("Inf")
-      min_MAPE = float("Inf")
-      best_test = float("Inf")
+        min_RMSE = float("Inf")
+        min_MAE = float("Inf")
+        min_MAPE = float("Inf")
+        best_test = float("Inf")
 
+        lr = 0.001
 
-      lr = 0.001
+        train_loss = torch.tensor(0.).to(self.device)
+        for epoch in range(1, epochs):
 
-      train_loss = torch.tensor(0.).to(self.device)
-      for epoch in range(1,epochs):
+            print("Epoch: ", epoch, " running...")
+            start_time = time.time()  # 获取当前时间戳（秒）
 
-        print("Epoch: ",epoch," running...")
+            tot_timestamp = len(self.train_data)
+            if self.t_debug:
+                tot_timestamp = 60
+            idx = np.random.permutation(tot_timestamp)
 
-        tot_timestamp = len(self.train_data)
-        if self.t_debug:
-          tot_timestamp = 60
-        idx = np.random.permutation(tot_timestamp)
+            for data_timestamp in idx:
 
+                tr_data = self.train_data[data_timestamp]
+                tr_label = self.train_label[data_timestamp]
 
+                timeStampModel, regression, train_loss = apply_model(self.all_nodes, timeStampModel,
+                                                                     regression, self.node_bsz, self.device, tr_data,
+                                                                     tr_label, train_loss, lr)
 
+                if self.b_debug:
+                    break
 
-        for data_timestamp in idx:
+            train_loss /= len(idx)
+            if epoch <= 24 and epoch % 8 == 0:
+                lr *= 0.5
+            else:
+                lr = 0.0001
 
-          tr_data = self.train_data[data_timestamp]
-          tr_label = self.train_label[data_timestamp]
+            print("Train avg loss: ", train_loss)
 
-          print(data_timestamp)
+            pred = []
+            label = []
+            tot_timestamp = len(self.test_data)
 
-          #sys.exit(0)  # 结束程序
+            if self.t_debug:
+                tot_timestamp = 60
 
+            idx = np.random.permutation(tot_timestamp)
+            test_loss = torch.tensor(0.).to(self.device)
+            for data_timestamp in idx:
 
-          timeStampModel, regression, train_loss = apply_model(self.all_nodes,timeStampModel,
-          regression,self.node_bsz, self.device,tr_data,tr_label,train_loss,lr)
+                # test_label
+                raw_features = self.test_data[data_timestamp]
+                test_label = self.test_label[data_timestamp]
 
-          if self.b_debug:
-            break
+                # evaluate
+                temp_predicts, test_loss = evaluate(self.all_nodes, raw_features, test_label,
+                                                    timeStampModel, regression, self.device, test_loss)
 
-        train_loss /= len(idx)
-        if epoch<= 24 and epoch%8==0:
-          lr *= 0.5
-        else:
-          lr = 0.0001
+                label = label + test_label.detach().tolist()
+                pred = pred + temp_predicts.detach().tolist()
 
+                if self.b_debug:
+                    break
 
-        print("Train avg loss: ",train_loss)
+            test_loss /= len(idx)
+            print("Average Test Loss: ", test_loss)
 
+            if test_loss <= best_test:
+                best_test = test_loss
+                pred_after = self.pred_len * 5
+                if self.save_flag:
+                    torch.save(timeStampModel,
+                               self.PATH + "/" + self.ds + "/bestTmodel_" + str(pred_after) + "minutes.pth")
+                    torch.save(regression,
+                               self.PATH + "/" + self.ds + "/bestRegression_" + str(pred_after) + "minutes.pth")
 
+            RMSE = torch.nn.MSELoss()(torch.FloatTensor(pred), torch.FloatTensor(label))
+            RMSE = torch.sqrt(RMSE).item()
+            MAE = mean_absolute_error(pred, label)
+            MAPE = mean_absolute_percentage_error(label, pred)
+
+            print("Epoch:", epoch)
+            print("RMSE: ", RMSE)
+            print("MAE: ", MAE)
+            print("MAPE: ", MAPE)
+            print("===============================================")
+
+            min_RMSE = min(min_RMSE, RMSE)
+            min_MAE = min(min_MAE, MAE)
+            min_MAPE = min(min_MAPE, MAPE)
+
+            print("Min RMSE: ", min_RMSE)
+            print("Min MAE: ", min_MAE)
+            print("Min MAPE: ", min_MAPE)
+
+            end_time = time.time()  # 再次获取当前时间戳
+            elapsed_time = end_time - start_time  # 计算时间差
+            print(f"Elapsed time: {elapsed_time} seconds")
+
+            print("===============================================")
+
+        return
+
+    def run_Trained_Model(self):
+        pred_after = self.pred_len * 5
+        timeStampModel = torch.load(self.PATH + "/" + self.ds + "/bestTmodel_" + str(pred_after) + "minutes.pth")
+        regression = torch.load(self.PATH + "/" + self.ds + "/bestRegression_" + str(pred_after) + "minutes.pth")
         pred = []
         label = []
         tot_timestamp = len(self.test_data)
-
-        if self.t_debug:
-          tot_timestamp = 60
-
-        idx = np.random.permutation(tot_timestamp)
+        idx = np.random.permutation(tot_timestamp + 1 - self.num_timestamps)
         test_loss = torch.tensor(0.).to(self.device)
         for data_timestamp in idx:
+            # test_label
+            raw_features = self.test_data[data_timestamp]
+            test_label = self.test_label[data_timestamp]
 
-          #test_label
-          raw_features = self.test_data[data_timestamp]
-          test_label = self.test_label[data_timestamp]
+            # evaluate
+            temp_predicts, test_loss = evaluate(self.all_nodes, raw_features, test_label,
+                                                timeStampModel, regression, self.device, test_loss)
 
-          #evaluate
-          temp_predicts,test_loss = evaluate(self.all_nodes,raw_features,test_label,
-            timeStampModel, regression, self.device,test_loss)
-
-          label = label + test_label.detach().tolist()
-          pred = pred + temp_predicts.detach().tolist()
-
-          if self.b_debug:
-            break
-
+            label = label + test_label.detach().tolist()
+            pred = pred + temp_predicts.detach().tolist()
 
         test_loss /= len(idx)
-        print("Average Test Loss: ",test_loss)
-
-        if test_loss <= best_test:
-          best_test = test_loss
-          pred_after = self.pred_len * 5
-          if self.save_flag:
-              torch.save(timeStampModel, self.PATH + "/" + self.ds + "/bestTmodel_" + str(pred_after) +"minutes.pth")
-              torch.save(regression, self.PATH + "/" + self.ds + "/bestRegression_" + str(pred_after) +"minutes.pth")
+        print("Average Test Loss: ", test_loss)
 
         RMSE = torch.nn.MSELoss()(torch.FloatTensor(pred), torch.FloatTensor(label))
         RMSE = torch.sqrt(RMSE).item()
-        MAE = mean_absolute_error(pred,label)
-        MAPE = mean_absolute_percentage_error(label,pred)
+        MAE = mean_absolute_error(pred, label)
+        MAPE = mean_absolute_percentage_error(label, pred)
 
-
-        print("Epoch:", epoch)
         print("RMSE: ", RMSE)
         print("MAE: ", MAE)
         print("MAPE: ", MAPE)
         print("===============================================")
 
-        min_RMSE = min(min_RMSE,RMSE)
-        min_MAE = min(min_MAE,MAE)
-        min_MAPE = min(min_MAPE,MAPE)
-
-        print("Min RMSE: ", min_RMSE)
-        print("Min MAE: ", min_MAE)
-        print("Min MAPE: ", min_MAPE)
-
-        print("===============================================")
-
-      return
-
-
-    def run_Trained_Model(self):
-      pred_after = self.pred_len * 5
-      timeStampModel = torch.load(self.PATH + "/" + self.ds +  "/bestTmodel_" + str(pred_after) +"minutes.pth")
-      regression = torch.load(self.PATH + "/" + self.ds +  "/bestRegression_" + str(pred_after) +"minutes.pth")
-      pred = []
-      label = []
-      tot_timestamp = len(self.test_data)
-      idx = np.random.permutation(tot_timestamp+1-self.num_timestamps)
-      test_loss = torch.tensor(0.).to(self.device)
-      for data_timestamp in idx:
-
-          #test_label
-          raw_features = self.test_data[data_timestamp]
-          test_label = self.test_label[data_timestamp]
-
-          #evaluate
-          temp_predicts,test_loss = evaluate(self.all_nodes,raw_features,test_label,
-            timeStampModel, regression, self.device,test_loss)
-
-          label = label + test_label.detach().tolist()
-          pred = pred + temp_predicts.detach().tolist()
-
-
-      test_loss /= len(idx)
-      print("Average Test Loss: ",test_loss)
-
-
-      RMSE = torch.nn.MSELoss()(torch.FloatTensor(pred), torch.FloatTensor(label))
-      RMSE = torch.sqrt(RMSE).item()
-      MAE = mean_absolute_error(pred,label)
-      MAPE = mean_absolute_percentage_error(label,pred)
-
-
-      print("RMSE: ", RMSE)
-      print("MAE: ", MAE)
-      print("MAPE: ", MAPE)
-      print("===============================================")
-      self.plot_predictions(label, pred)
-
-    # Visualization Function
-
-
-def plot_predictions(self, true_values, predicted_values):
-    """
-    Plots true vs predicted values over timestamps.
-    """
-    plt.figure(figsize=(12, 6))
-    plt.plot(true_values[:200], label="True Values", color='blue', linestyle='-')
-    plt.plot(predicted_values[:200], label="Predicted Values", color='red', linestyle='--')
-    plt.title("Traffic Speed Prediction vs. True Values")
-    plt.xlabel("Time Steps")
-    plt.ylabel("Speed")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
 
 """# Spatio-Temporal GNN"""
 
+
 class SPTempGNN(nn.Module):
-  def __init__(self,D_temporal,A_temporal,num_timestamps,out_size,tot_nodes):
-    super(SPTempGNN, self).__init__()
+    def __init__(self, D_temporal, A_temporal, num_timestamps, out_size, tot_nodes):
+        super(SPTempGNN, self).__init__()
 
-    self.tot_nodes = tot_nodes
-    self.sp_temp = torch.mm(D_temporal,torch.mm(A_temporal,D_temporal))
+        self.tot_nodes = tot_nodes
+        self.sp_temp = torch.mm(D_temporal, torch.mm(A_temporal, D_temporal))
 
+        self.his_temporal_weight = nn.Parameter(torch.FloatTensor(num_timestamps, out_size))
 
+        self.his_final_weight = nn.Parameter(torch.FloatTensor(2 * (out_size), out_size))
 
-    self.his_temporal_weight = nn.Parameter(torch.FloatTensor(num_timestamps,out_size))
+    def forward(self, his_raw_features):
+        his_self = his_raw_features
+        his_temporal = self.his_temporal_weight.repeat(self.tot_nodes, 1) * his_raw_features
+        his_temporal = torch.mm(self.sp_temp, his_temporal)
 
-    self.his_final_weight = nn.Parameter(torch.FloatTensor(2*(out_size),out_size))
+        his_combined = torch.cat([his_self, his_temporal], dim=1)
+        his_raw_features = F.relu(his_combined.mm(self.his_final_weight))
 
+        return his_raw_features
 
-  def forward(self,his_raw_features):
-    his_self = his_raw_features
-    his_temporal = self.his_temporal_weight.repeat(self.tot_nodes,1) * his_raw_features
-    his_temporal = torch.mm(self.sp_temp,his_temporal)
-
-    his_combined = torch.cat([his_self,his_temporal], dim=1)
-    his_raw_features =F.relu(his_combined.mm(self.his_final_weight))
-
-
-    return his_raw_features
 
 """# Combined GraphSAGE
 
 """
 
+
 class CombinedGNN(nn.Module):
-    def __init__(self,input_size,out_size, adj_lists,
-                 device,st,GNN_layers,num_timestamps,day):
+    def __init__(self, input_size, out_size, adj_lists,
+                 device, st, GNN_layers, num_timestamps, day):
         super(CombinedGNN, self).__init__()
 
         self.st = st
@@ -549,151 +518,131 @@ class CombinedGNN(nn.Module):
         self.adj_lists = adj_lists
         self.GNN_layers = GNN_layers
 
-
         self.day = day
 
-
-        self.his_weight = nn.Parameter(torch.FloatTensor(out_size, self.num_timestamps*out_size))
-        self.cur_weight = nn.Parameter(torch.FloatTensor(1, self.num_timestamps*1))
+        self.his_weight = nn.Parameter(torch.FloatTensor(out_size, self.num_timestamps * out_size))
+        self.cur_weight = nn.Parameter(torch.FloatTensor(1, self.num_timestamps * 1))
 
         A = self.adj_lists
-        dim = self.num_timestamps*self.tot_nodes
+        dim = self.num_timestamps * self.tot_nodes
 
-        A_temporal = torch.zeros(dim,dim)
-        D_temporal = torch.zeros(dim,dim)
-        identity = torch.eye(self.tot_nodes)
+        A_temporal = torch.zeros(dim, dim).to(device)
+        D_temporal = torch.zeros(dim, dim).to(device)
+        identity = torch.eye(self.tot_nodes).to(device)
 
         for i in range(0, self.num_timestamps):
-          for j in range(0, i+1):
+            for j in range(0, i + 1):
 
-            row_st = i*self.tot_nodes
-            row_en = row_st + self.tot_nodes
-            col_st = j*self.tot_nodes
-            col_en = col_st + self.tot_nodes
+                row_st = i * self.tot_nodes
+                row_en = row_st + self.tot_nodes
+                col_st = j * self.tot_nodes
+                col_en = col_st + self.tot_nodes
 
-            if i == j: #adj matrix
-              A_temporal[row_st:row_en,col_st:col_en] = A
-            else: #identity matrix
-              A_temporal[row_st:row_en,col_st:col_en] = identity + A
+                if i == j:  # adj matrix
+                    A_temporal[row_st:row_en, col_st:col_en] = A
+                else:  # identity matrix
+                    A_temporal[row_st:row_en, col_st:col_en] = identity + A
 
-        row_sum = torch.sum(A_temporal,0)
+        row_sum = torch.sum(A_temporal, 0)
 
         for i in range(dim):
-          D_temporal[i,i] = 1/max(torch.sqrt(row_sum[i]),1)
+            D_temporal[i, i] = 1 / max(torch.sqrt(row_sum[i]), 1)
 
         for i in range(GNN_layers):
-          sp_temp = SPTempGNN(D_temporal,A_temporal,num_timestamps,out_size,self.tot_nodes)
-          setattr(self, 'sp_temp_layer'+str(i), sp_temp)
+            sp_temp = SPTempGNN(D_temporal, A_temporal, num_timestamps, out_size, self.tot_nodes)
+            setattr(self, 'sp_temp_layer' + str(i), sp_temp)
 
-
-        dim2 = self.num_timestamps*(out_size)
+        dim2 = self.num_timestamps * (out_size)
         self.final_weight = nn.Parameter(torch.FloatTensor(dim2, dim2))
 
         self.init_params()
 
-
-
-
     def init_params(self):
 
+        for param in self.parameters():
+            if (len(param.shape) > 1):
+                nn.init.xavier_uniform_(param)
 
-      for param in self.parameters():
-          if(len(param.shape)>1):
-            nn.init.xavier_uniform_(param)
+    def forward(self, his_raw_features, isTrain):
 
+        dim = self.num_timestamps * self.tot_nodes
+        his_raw_features = his_raw_features[:, :, :self.day].view(dim, self.day)
 
-    def forward(self,his_raw_features,isTrain):
+        for i in range(self.GNN_layers):
+            sp_temp = getattr(self, 'sp_temp_layer' + str(i))
+            his_raw_features = sp_temp(his_raw_features)
 
-      dim = self.num_timestamps*self.tot_nodes
-      his_raw_features = his_raw_features[:,:,:self.day].view(dim,self.day)
+        his_list = []
 
+        for timestamp in range(self.num_timestamps):
+            st = timestamp * self.tot_nodes
+            en = (timestamp + 1) * self.tot_nodes
+            his_list.append(his_raw_features[st:en, :])
 
-      for i in range(self.GNN_layers):
-        sp_temp = getattr(self, 'sp_temp_layer'+str(i))
-        his_raw_features = sp_temp(his_raw_features)
+        his_final_embds = torch.cat(his_list, dim=1)
 
+        final_embds = his_final_embds
+        final_embds = F.relu(self.final_weight.mm(final_embds.t()).t())
 
-      his_list = []
+        return final_embds
 
-      for timestamp in range(self.num_timestamps):
-        st = timestamp * self.tot_nodes
-        en = (timestamp+1) * self.tot_nodes
-        his_list.append(his_raw_features[st:en,:])
-
-      his_final_embds = torch.cat(his_list,dim=1)
-
-
-      final_embds = his_final_embds
-      final_embds = F.relu(self.final_weight.mm(final_embds.t()).t())
-
-
-
-      return final_embds
 
 """# Applying Model"""
 
+
 def apply_model(train_nodes, CombinedGNN, regression,
-                node_batch_sz, device,train_data,train_label,avg_loss,lr):
-
-
+                node_batch_sz, device, train_data, train_label, avg_loss, lr):
     models = [CombinedGNN, regression]
     params = []
     for model in models:
-      for param in model.parameters():
-          if param.requires_grad:
-              params.append(param)
-
-
+        for param in model.parameters():
+            if param.requires_grad:
+                params.append(param)
 
     optimizer = torch.optim.Adam(params, lr=lr, weight_decay=0)
 
     optimizer.zero_grad()  # set gradients in zero...
     for model in models:
-      model.zero_grad()  # set gradients in zero
+        model.zero_grad()  # set gradients in zero
 
     node_batches = math.ceil(len(train_nodes) / node_batch_sz)
 
-    loss = torch.tensor(0.)
-    #window slide
+    loss = torch.tensor(0.).to(device)
+    # window slide
     raw_features = train_data
     labels = train_label
     for index in range(node_batches):
+        nodes_batch = train_nodes[index * node_batch_sz:(index + 1) * node_batch_sz]
+        nodes_batch = nodes_batch.view(nodes_batch.shape[0], 1)
+        labels_batch = labels[nodes_batch]
+        labels_batch = labels_batch.view(len(labels_batch), pred_len)
+        embs_batch = CombinedGNN(raw_features, True)  # Finds embeddings for all the ndoes in nodes_batch
 
-      nodes_batch = train_nodes[index * node_batch_sz:(index + 1) * node_batch_sz]
-      nodes_batch = nodes_batch.view(nodes_batch.shape[0],1)
-      labels_batch = labels[nodes_batch]
-      labels_batch = labels_batch.view(len(labels_batch),pred_len)
-      embs_batch = CombinedGNN(raw_features,True)  # Finds embeddings for all the ndoes in nodes_batch
+        logists = regression(embs_batch)
 
-      logists = regression(embs_batch)
+        loss_sup = torch.nn.MSELoss()(logists, labels_batch)
 
-
-      loss_sup = torch.nn.MSELoss()(logists, labels_batch)
-
-      loss_sup /= len(nodes_batch)
-      loss += loss_sup
-
-
+        loss_sup /= len(nodes_batch)
+        loss += loss_sup
 
     avg_loss += loss.item()
 
     loss.backward()
     for model in models:
-      nn.utils.clip_grad_norm_(model.parameters(), 5)
+        nn.utils.clip_grad_norm_(model.parameters(), 5)
     optimizer.step()
 
     optimizer.zero_grad()
     for model in models:
-      model.zero_grad()
+        model.zero_grad()
 
-    return (0
-            , regression,avg_loss)
+    return CombinedGNN, regression, avg_loss
+
 
 """#Training"""
 
 parser = argparse.ArgumentParser(description='pytorch version of USTGCN')
 parser.add_argument('-f')
-
 
 parser.add_argument('--dataset', type=str, default='PeMSD7')
 parser.add_argument('--GNN_layers', type=int, default=3)
@@ -701,24 +650,20 @@ parser.add_argument('--num_timestamps', type=int, default=12)
 parser.add_argument('--pred_len', type=int, default=3)
 parser.add_argument('--epochs', type=int, default=500)
 parser.add_argument('--seed', type=int, default=42)
-parser.add_argument('--cuda', action='store_true',help='use CUDA')
+parser.add_argument('--cuda', action='store_true', help='use CUDA')
 parser.add_argument('--trained_model', action='store_true')
 parser.add_argument('--save_model', action='store_true')
 parser.add_argument('--input_size', type=int, default=8)
 args = parser.parse_args()
 
-
-
-
 device = torch.device("cuda:0" if args.cuda and torch.cuda.is_available() else "cpu")
 print('DEVICE:', device)
-
 
 """# Main Function"""
 
 print('Traffic Forecasting GNN with Historical and Current Model')
 
-#set user given seed to every random generator
+# set user given seed to every random generator
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -730,8 +675,8 @@ config_file = PATH + "experiments.conf"
 config = pyhocon.ConfigFactory.parse_file(config_file)
 ds = args.dataset
 pred_len = args.pred_len
-data_loader = DataLoader(config,ds,pred_len)
-train_data,train_label,test_data,test_label,adj = data_loader.load_data()
+data_loader = DataLoader(config, ds, pred_len)
+train_data, train_label, test_data, test_label, adj = data_loader.load_data()
 
 num_timestamps = args.num_timestamps
 GNN_layers = args.GNN_layers
@@ -739,18 +684,16 @@ input_size = args.input_size
 out_size = args.input_size
 epochs = args.epochs
 
-
 save_flag = args.save_model
 t_debug = False
 b_debug = False
-hModel = TrafficModel(train_data,train_label,test_data,test_label,adj,config, ds, input_size,
-                       out_size,GNN_layers,epochs, device,num_timestamps,pred_len,save_flag,
-                       PATH,t_debug,b_debug)
+hModel = TrafficModel(train_data, train_label, test_data, test_label, adj, config, ds, input_size,
+                      out_size, GNN_layers, epochs, device, num_timestamps, pred_len, save_flag,
+                      PATH, t_debug, b_debug)
 
-
-if not args.trained_model: #train model and evaluate
-  print("Running Trained Model...")
-  hModel.run_model()
+if not args.trained_model:  # train model and evaluate
+    print("Running Trained Model...")
+    hModel.run_model()
 else:
-  print("Running Trained Model1...")
-  hModel.run_Trained_Model() #run trained model
+    print("Running Trained Model...")
+    hModel.run_Trained_Model()  # run trained model

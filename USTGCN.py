@@ -345,6 +345,8 @@ class TrafficModel:
 
             print("Epoch: ", epoch, " running...")
 
+            start_time = time.time()  # 获取当前时间戳（秒）
+
             tot_timestamp = len(self.train_data)   #576
 
             if self.t_debug:
@@ -430,6 +432,10 @@ class TrafficModel:
             print("Min RMSE: ", min_RMSE)
             print("Min MAE: ", min_MAE)
             print("Min MAPE: ", min_MAPE)
+
+            end_time = time.time()  # 再次获取当前时间戳
+            elapsed_time = end_time - start_time  # 计算时间差
+            print(f"Elapsed time: {elapsed_time} seconds")
 
             print("===============================================")
   ###########
