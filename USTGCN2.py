@@ -400,6 +400,8 @@ class TrafficModel:
                 if self.b_debug:
                     break
 
+
+
             test_loss /= len(idx)
             print("Average Test Loss: ", test_loss)
 
@@ -416,6 +418,31 @@ class TrafficModel:
             RMSE = torch.sqrt(RMSE).item()
             MAE = mean_absolute_error(pred, label)
             MAPE = mean_absolute_percentage_error(label, pred)
+
+            # # 将 list 转换为 Tensor
+            # label_tensor = torch.tensor(label)
+            # pred_tensor = torch.tensor(pred)
+            #
+            # # 确保数据的形状为 (228, 3)
+            # assert label_tensor.shape == (65664, 3)
+            # assert pred_tensor.shape == (65664, 3)
+            #
+            # # 绘制三个维度的对比图
+            # fig, axes = plt.subplots(3, 1, figsize=(10, 15))
+            #
+            # for i in range(3):
+            #     axes[i].plot(label_tensor[:, i], label='Label', marker='o')
+            #     axes[i].plot(pred_tensor[:, i], label='Prediction', marker='x')
+            #     axes[i].set_title(f'Dimension {i + 1} Comparison')
+            #     axes[i].legend()
+            #     axes[i].grid(True)
+            #
+            # plt.tight_layout()
+            # plt.show()
+            #
+            # sys.exit()
+
+
 
             print("Epoch:", epoch)
             print("RMSE: ", RMSE)
