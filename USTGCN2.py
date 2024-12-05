@@ -67,12 +67,12 @@ class DataCenter(object):
                     timestamp_data.append(info)
 
         timestamp_data = np.asarray(timestamp_data)
-        timestamp_data = timestamp_data.transpose()
-        tot_node = timestamp_data.shape[0]
-        tot_ts = timestamp_data.shape[1]
+        timestamp_data = timestamp_data.transpose()  #228*12672
+        tot_node = timestamp_data.shape[0]   #节点数 228
+        tot_ts = timestamp_data.shape[1]       #时间戳数  12672
 
         st_day -= 1
-        timestamp = 24 * hr_sample
+        timestamp = 24 * hr_sample   #288
 
         ts_data = []
         label_data = []
@@ -265,8 +265,8 @@ class DataLoader:
         return train_data, train_label, test_data, test_label, adj
 
 
+#训练模型
 """# Traffic Model"""
-
 
 class TrafficModel:
 
@@ -277,7 +277,8 @@ class TrafficModel:
         super(TrafficModel, self).__init__()
 
         self.train_data, self.train_label, self.test_data, self.test_label, self.adj = train_data, train_label, test_data, test_label, adj
-        self.all_nodes = [i for i in range(self.adj.shape[0])]
+        #self.all_nodes = [i for i in range(self.adj.shape[0])]
+        self.all_nodes = list(range(self.adj.shape[0]))
 
         self.ds = ds
         self.input_size = input_size
@@ -304,7 +305,7 @@ class TrafficModel:
         # 首先，将列表转换为单一的 numpy.ndarray
         combined_array = np.array(self.train_data)
         combined_array = combined_array.astype(np.float32)
-        self.train_data = torch.FloatTensor(combined_array)
+        self.train_data = torch.FloatTensor(combined_array) #288*12*228*8
 
 
         self.test_data = np.array(self.test_data)
@@ -359,6 +360,7 @@ class TrafficModel:
 
                 tr_data = self.train_data[data_timestamp]
                 tr_label = self.train_label[data_timestamp]
+
 
                 timeStampModel, regression, train_loss = apply_model(self.all_nodes, timeStampModel,
                                                                      regression, self.node_bsz, self.device, tr_data,
@@ -509,11 +511,11 @@ class SPTempGNN(nn.Module):
         super(SPTempGNN, self).__init__()
 
         self.tot_nodes = tot_nodes
-        self.sp_temp = torch.mm(D_temporal, torch.mm(A_temporal, D_temporal))
+        self.sp_temp = torch.mm(D_temporal, torch.mm(A_temporal, D_temporal))  #DAD  2736*2736
 
-        self.his_temporal_weight = nn.Parameter(torch.FloatTensor(num_timestamps, out_size))
+        self.his_temporal_weight = nn.Parameter(torch.FloatTensor(num_timestamps, out_size))   #12*8
 
-        self.his_final_weight = nn.Parameter(torch.FloatTensor(2 * (out_size), out_size))
+        self.his_final_weight = nn.Parameter(torch.FloatTensor(2 * (out_size), out_size))   #16*8
 
     def forward(self, his_raw_features):
         his_self = his_raw_features
@@ -529,7 +531,6 @@ class SPTempGNN(nn.Module):
 """# Combined GraphSAGE
 
 """
-
 
 class CombinedGNN(nn.Module):
     def __init__(self, input_size, out_size, adj_lists,
@@ -552,7 +553,7 @@ class CombinedGNN(nn.Module):
         A = self.adj_lists
         dim = self.num_timestamps * self.tot_nodes
 
-        A_temporal = torch.zeros(dim, dim).to(device)
+        A_temporal = torch.zeros(dim, dim).to(device)   #时空邻接矩阵
         D_temporal = torch.zeros(dim, dim).to(device)
         identity = torch.eye(self.tot_nodes).to(device)
 
@@ -569,14 +570,14 @@ class CombinedGNN(nn.Module):
                 else:  # identity matrix
                     A_temporal[row_st:row_en, col_st:col_en] = identity + A
 
-        row_sum = torch.sum(A_temporal, 0)
+        row_sum = torch.sum(A_temporal, 0)    #对每一列求和
 
         for i in range(dim):
-            D_temporal[i, i] = 1 / max(torch.sqrt(row_sum[i]), 1)
+            D_temporal[i, i] = 1 / max(torch.sqrt(row_sum[i]), 1)  #求度矩阵
 
         for i in range(GNN_layers):
             sp_temp = SPTempGNN(D_temporal, A_temporal, num_timestamps, out_size, self.tot_nodes)
-            setattr(self, 'sp_temp_layer' + str(i), sp_temp)
+            setattr(self, 'sp_temp_layer' + str(i), sp_temp)    #'sp_temp_layer0'、'sp_temp_layer1'等实例
 
         dim2 = self.num_timestamps * (out_size)
         self.final_weight = nn.Parameter(torch.FloatTensor(dim2, dim2))
@@ -678,7 +679,7 @@ parser.add_argument('--seed', type=int, default=42)
 parser.add_argument('--cuda', action='store_true', help='use CUDA')
 parser.add_argument('--trained_model', action='store_true')
 parser.add_argument('--save_model', action='store_true')
-parser.add_argument('--input_size', type=int, default=8)
+parser.add_argument('--input_size', type=int, default=8)  #输入特征默认为8
 args = parser.parse_args()
 
 device = torch.device("cuda:0" if args.cuda and torch.cuda.is_available() else "cpu")
@@ -688,7 +689,7 @@ print('DEVICE:', device)
 
 print('Traffic Forecasting GNN with Historical and Current Model')
 
-# set user given seed to every random generator
+# 设置随机种子，确保实验的可重复性。
 random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
