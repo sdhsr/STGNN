@@ -421,28 +421,30 @@ class TrafficModel:
             MAE = mean_absolute_error(pred, label)
             MAPE = mean_absolute_percentage_error(label, pred)
 
-            # # 将 list 转换为 Tensor
-            # label_tensor = torch.tensor(label)
-            # pred_tensor = torch.tensor(pred)
-            #
-            # # 确保数据的形状为 (228, 3)
-            # assert label_tensor.shape == (65664, 3)
-            # assert pred_tensor.shape == (65664, 3)
-            #
-            # # 绘制三个维度的对比图
-            # fig, axes = plt.subplots(3, 1, figsize=(10, 15))
-            #
-            # for i in range(3):
-            #     axes[i].plot(label_tensor[:, i], label='Label', marker='o')
-            #     axes[i].plot(pred_tensor[:, i], label='Prediction', marker='x')
-            #     axes[i].set_title(f'Dimension {i + 1} Comparison')
-            #     axes[i].legend()
-            #     axes[i].grid(True)
-            #
-            # plt.tight_layout()
-            # plt.show()
-            #
-            # sys.exit()
+                #
+                # # 将 list 转换为 Tensor
+                # label_tensor = torch.tensor(label)
+                # pred_tensor = torch.tensor(pred)
+                #
+                # # 确保数据的形状为 (228, 3)
+                # assert label_tensor.shape == (len(label), 3)
+                # assert pred_tensor.shape == (len(pred_tensor), 3)
+                #
+                # # 绘制三个维度的对比图
+                # fig, axes = plt.subplots(3, 1, figsize=(10, 15))
+                #
+                # for i in range(3):
+                #     axes[i].plot(label_tensor[:, i], label='Label', marker='o')
+                #     axes[i].plot(pred_tensor[:, i], label='Prediction', marker='x')
+                #     axes[i].set_title(f'Dimension {i + 1} Comparison')
+                #     axes[i].legend()
+                #     axes[i].grid(True)
+                #
+                # plt.tight_layout()
+                # plt.show()
+                #
+                # sys.exit()
+
 
 
 
@@ -519,11 +521,11 @@ class SPTempGNN(nn.Module):
 
     def forward(self, his_raw_features):
         his_self = his_raw_features
-        his_temporal = self.his_temporal_weight.repeat(self.tot_nodes, 1) * his_raw_features
-        his_temporal = torch.mm(self.sp_temp, his_temporal)
+        his_temporal = self.his_temporal_weight.repeat(self.tot_nodes, 1) * his_raw_features    #特征向量矩阵乘时间权重矩阵，元素级（element-wise）的乘法，也称为Hadamard乘积
+        his_temporal = torch.mm(self.sp_temp, his_temporal)     #空间邻接矩阵乘以特征矩阵
 
-        his_combined = torch.cat([his_self, his_temporal], dim=1)
-        his_raw_features = F.relu(his_combined.mm(self.his_final_weight))
+        his_combined = torch.cat([his_self, his_temporal], dim=1)   #原始特征矩阵拼接聚合的特征矩阵
+        his_raw_features = F.relu(his_combined.mm(self.his_final_weight))   #拼接矩阵乘以权重矩阵，再激活
 
         return his_raw_features
 
@@ -557,7 +559,7 @@ class CombinedGNN(nn.Module):
         D_temporal = torch.zeros(dim, dim).to(device)
         identity = torch.eye(self.tot_nodes).to(device)
 
-        for i in range(0, self.num_timestamps):
+        for i in range(0, self.num_timestamps):   #构建时空邻接矩阵
             for j in range(0, i + 1):
 
                 row_st = i * self.tot_nodes
@@ -565,15 +567,15 @@ class CombinedGNN(nn.Module):
                 col_st = j * self.tot_nodes
                 col_en = col_st + self.tot_nodes
 
-                if i == j:  # adj matrix
+                if i == j:   # adj matrix
                     A_temporal[row_st:row_en, col_st:col_en] = A
-                else:  # identity matrix
+                else:    # identity matrix
                     A_temporal[row_st:row_en, col_st:col_en] = identity + A
 
         row_sum = torch.sum(A_temporal, 0)    #对每一列求和
 
-        for i in range(dim):
-            D_temporal[i, i] = 1 / max(torch.sqrt(row_sum[i]), 1)  #求度矩阵
+        for i in range(dim):             #求度矩阵
+            D_temporal[i, i] = 1 / max(torch.sqrt(row_sum[i]), 1)
 
         for i in range(GNN_layers):
             sp_temp = SPTempGNN(D_temporal, A_temporal, num_timestamps, out_size, self.tot_nodes)
@@ -623,7 +625,7 @@ def apply_model(train_nodes, CombinedGNN, regression,
     for model in models:
         for param in model.parameters():
             if param.requires_grad:
-                params.append(param)
+                params.append(param)    #该参数需要被优化器更新
 
     optimizer = torch.optim.Adam(params, lr=lr, weight_decay=0)
 
@@ -711,8 +713,8 @@ out_size = args.input_size
 epochs = args.epochs
 
 save_flag = args.save_model
-t_debug = False
-b_debug = False
+t_debug = True
+b_debug = True
 hModel = TrafficModel(train_data, train_label, test_data, test_label, adj, config, ds, input_size,
                       out_size, GNN_layers, epochs, device, num_timestamps, pred_len, save_flag,
                       PATH, t_debug, b_debug)

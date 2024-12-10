@@ -48,7 +48,7 @@ criterion = nn.BCELoss()
 optimizer = torch.optim.SGD(model.parameters(), lr=0.01)  # 学习率设为0.01
 
 # 设置训练的轮数
-num_epochs = 100
+num_epochs = 5000
 
 # 开始训练模型
 for epoch in range(num_epochs):
