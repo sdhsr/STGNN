@@ -522,7 +522,7 @@ class SPTempGNN(nn.Module):
     def forward(self, his_raw_features):
         his_self = his_raw_features
         his_temporal = self.his_temporal_weight.repeat(self.tot_nodes, 1) * his_raw_features    #特征向量矩阵乘时间权重矩阵，元素级（element-wise）的乘法，也称为Hadamard乘积
-        his_temporal = torch.mm(self.sp_temp, his_temporal)     #空间邻接矩阵乘以特征矩阵
+        his_temporal = torch.mm(self.sp_temp, his_temporal)     #时空邻接矩阵乘以特征矩阵
 
         his_combined = torch.cat([his_self, his_temporal], dim=1)   #原始特征矩阵拼接聚合的特征矩阵
         his_raw_features = F.relu(his_combined.mm(self.his_final_weight))   #拼接矩阵乘以权重矩阵，再激活
@@ -713,8 +713,8 @@ out_size = args.input_size
 epochs = args.epochs
 
 save_flag = args.save_model
-t_debug = True
-b_debug = True
+t_debug = False
+b_debug = False
 hModel = TrafficModel(train_data, train_label, test_data, test_label, adj, config, ds, input_size,
                       out_size, GNN_layers, epochs, device, num_timestamps, pred_len, save_flag,
                       PATH, t_debug, b_debug)

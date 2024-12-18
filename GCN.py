@@ -91,15 +91,104 @@
 #     _, pred = model(features, adj).max(dim=1)
 #     print(f"Predicted Labels: {pred.tolist()}")
 
-def generate_pass_file(filename='D:\\sdh\\passes.txt'):
-    with open(filename, 'w') as file:
-        for i in range(1, 10000):
-            formatted_number = f"PASS{i:04d}"
-            file.write(formatted_number + '\n')
+
+import torch
+import networkx as nx
+import matplotlib.pyplot as plt
+import torch.nn as nn
+from torch_geometric.datasets import KarateClub
+from torch_geometric.utils import to_networkx
+from torch_geometric.nn import GCNConv
 
 
-if __name__ == "__main__":
-    generate_pass_file()
+def visualize_graph(G, color):
+    plt.figure(figsize=(7, 7))
+    plt.xticks([])
+    plt.yticks([])
+    nx.draw_networkx(G, pos=nx.spring_layout(G, seed=42), with_labels=False, node_color=color, cmap="Set2")
+    plt.savefig("D:\\Java\\USTGCN\\graph.png")
+
+
+# 1.图的结构
+# Karate Clubs数据集包含一个无向图，有34个节点和78条边
+# 每个节点代表俱乐部中的一个成员
+# 边表示两个成员之间的友谊关系
+# 2.节点属性
+# 节点具有一个类别标签，0,1,2,3，表示属于哪一类
+# 3.任务
+# 根据成员之间的关系决定成员的类别
+dataset = KarateClub()
+print(f"Dataset: {dataset}:")
+print('====================')
+print(f'Number of graphs: {len(dataset)}')
+print(f'Number of features: {dataset.num_features}')
+print(f'Number of classes: {dataset.num_classes}')
+
+data = dataset[0]
+# 输出Data(x=[34, 34], edge_index=[2, 156], y=[34], train_mask=[34])
+# x：形状为 [34, 34] 的特征矩阵，表示有34个节点，每个节点有34个特征
+# edge_index：形状为 [2, 156]的邻接矩阵，前面说到图中的78条边是无向边，而PyTorch Geometric的 edge_index默认将无向边视为两条方向相反的有向边
+#             start→end两个序列，所以有两行
+# y：形状为 [34] 的标签向量，表示每个节点的标签
+# train_mask：形状为 [34] 的布尔向量，表示哪些节点用于训练
+print(data)
+
+# to_undirected=True无向图
+G = to_networkx(data, to_undirected=True)
+# 输出一个networkx图
+visualize_graph(G, data.y)
+
+
+class GCN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        # 图卷积中变化的只有节点的特征维度，邻接矩阵永远不变；dataset.num_features=34
+        # in_channels节点输入特征维度，out_channels节点输出特征维度
+        self.conv1 = GCNConv(in_channels=dataset.num_features, out_channels=4)
+        self.conv2 = GCNConv(in_channels=4, out_channels=4)
+        self.conv3 = GCNConv(in_channels=4, out_channels=2)
+        self.classifier = nn.Linear(2, dataset.num_classes)
+
+    def forward(self, x, edge_index):
+        y1 = self.conv1(x, edge_index)
+        y1 = torch.relu(y1)
+        y2 = self.conv2(y1, edge_index)
+        y2 = torch.relu(y2)
+        y3 = self.conv3(y2, edge_index)
+        y3 = torch.relu(y3)
+
+        out = self.classifier(y3)
+
+        return out, y3
+
+
+if __name__ == '__main__':
+
+    model = GCN()
+    # 定义损失函数
+    loss = nn.CrossEntropyLoss()
+    # 优化器
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    epochs = 200
+    for epoch in range(epochs):
+        # 清空优化器的梯度
+        optimizer.zero_grad()
+        # 设置为训练模式
+        model.train()
+        # 前向传播
+        out, h = model(data.x, data.edge_index)
+        # 计算损失
+        # 只看mask为True的节点，因此是半监督
+        loss_train = loss(out[data.train_mask], data.y[data.train_mask])
+        # 反向传播
+        loss_train.backward()
+        # 更新模型参数
+        optimizer.step()
+        print(loss_train)
+
+
+
+
 
 
 
